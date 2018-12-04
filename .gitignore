@@ -3,7 +3,6 @@ coverage
 npm-debug.log
 .env
 build
-dist
 docs/out
 docs/sdk.css
 package-lock.json
