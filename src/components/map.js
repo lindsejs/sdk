@@ -1753,26 +1753,31 @@ export class Map extends React.Component {
     } else if (drawingProps.interaction === INTERACTIONS.select) {
       // TODO: Select is typically a single-feature affair but there
       //       should be support for multiple feature selections in the future.
-      let drawObj = {
-        wrapX: false,
-        layers: (layer) => {
-          const layer_src = this.sources[drawingProps.sourceName];
-          return (layer.getSource() === layer_src);
-        },
-      };
-      drawObj = this.setStyleFunc(drawObj, drawingProps.selectStyle);
-      const select = new SelectInteraction(drawObj);
-
-      select.on('select', (evt) => {
-        if (evt.selected.length > 0) {
-          this.onFeatureEvent('selected', drawingProps.sourceName, evt.selected);
+      this.getStyleFuncWithSprite(drawingProps.selectStyle).then(styleFunc => {
+        const drawObj = {
+          wrapX: false,
+          layers: (layer) => {
+            const layer_src = this.sources[drawingProps.sourceName];
+            return (layer.getSource() === layer_src);
+          },
+        };
+        if (styleFunc) {
+          drawObj.style = styleFunc;
         }
-        if (evt.deselected.length > 0) {
-          this.onFeatureEvent('deselected', drawingProps.sourceName, evt.deselected);
-        }
+        const select = new SelectInteraction(drawObj);
+        select.on('select', (evt) => {
+          if (evt.selected.length > 0) {
+            this.onFeatureEvent('selected', drawingProps.sourceName, evt.selected);
+          }
+          if (evt.deselected.length > 0) {
+            this.onFeatureEvent('deselected', drawingProps.sourceName, evt.deselected);
+          }
+        });
+        this.activeInteractions = [select];
+        this.addInteractions();
+      }).catch((error) => {
+        console.error('An error occured.', error);
       });
-
-      this.activeInteractions = [select];
     } else if (INTERACTIONS.drawing.includes(drawingProps.interaction)) {
       let drawObj = {};
       if (drawingProps.interaction === INTERACTIONS.box) {
@@ -1825,7 +1830,9 @@ export class Map extends React.Component {
 
       this.activeInteractions = [measure];
     }
-
+    this.addInteractions();
+  }
+  addInteractions() {
     if (this.activeInteractions) {
       for (let i = 0, ii = this.activeInteractions.length; i < ii; i++) {
         this.map.addInteraction(this.activeInteractions[i]);
@@ -1842,7 +1849,12 @@ export class Map extends React.Component {
       styleObj.style = getOLStyleFunctionFromMapboxStyle(style);
     }
     return styleObj;
-
+  }
+  getStyleFuncWithSprite(style) {
+    if (style) {
+      return getOLStyleFunctionFromMapboxStyleWithSprite(style, this.props.map.sprite);
+    }
+    return new Promise((resolve) => resolve(null));
   }
 }
 
@@ -1983,7 +1995,16 @@ function mapDispatchToProps(dispatch) {
   };
 }
 
-export function getOLStyleFunctionFromMapboxStyle(styles) {
+async function getOLStyleFunctionFromMapboxStyleWithSprite(styles, sprite) {
+  const {olLayer, glStyle, sources} = prepareLayersAndSources(styles);
+  glStyle.sprite = sprite;
+  await applyStyle(olLayer, glStyle, sources).catch((error) => {
+    console.error('An error occured.', error);
+  });
+  return olLayer.getStyle();
+}
+
+function prepareLayersAndSources(styles) {
   const sources = {};
   for (let i = 0, ii = styles.length; i < ii; ++i) {
     const style = styles[i];
@@ -1999,9 +2020,19 @@ export function getOLStyleFunctionFromMapboxStyle(styles) {
     sources,
   };
   const olLayer = new VectorLayer();
-  return mb2olstyle(olLayer, glStyle, styles.map(function(style) {
-    return style.id;
-  }));
+
+  return {
+    olLayer,
+    glStyle,
+    sources: styles.map(function(style) {
+      return style.id;
+    })
+  };
+}
+
+export function getOLStyleFunctionFromMapboxStyle(styles) {
+  const {olLayer, glStyle, sources} = prepareLayersAndSources(styles);
+  return mb2olstyle(olLayer, glStyle, sources);
 }
 
 // Ensure that withRef is set to true so getWrappedInstance will return the Map.
